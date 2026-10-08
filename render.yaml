@@ -1,5 +1,3 @@
-# Render 蓝图: 把本仓库直接连上去即可自动建站
-# 用法: Render 控制台 -> New -> Blueprint -> 选这个仓库
 services:
   - type: web
     name: north-loading-trend
@@ -9,6 +7,3 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python server.py
     healthCheckPath: /
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9

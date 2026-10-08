@@ -4,6 +4,7 @@ __pycache__/
 # 本地运维脚本(含 Windows 路径, 云端用不到)
 autostart.py
 restart-public.py
+deploy-github.py
 *.cmd
 
 # 示例数据
