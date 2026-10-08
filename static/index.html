@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>区域工厂液体装货趋势</title>
+<script src="/static/vendor/chart.umd.js"></script>
+<style>
+:root{
+  --bg:#f4f6fa; --card:#ffffff; --ink:#1f2733; --sub:#6b7686;
+  --pri:#2f6fed; --pri-weak:#e8effd; --line:#e4e9f0;
+  --ok:#1a9e63; --warn:#d97706; --danger:#d64550;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:14px 28px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+.brand h1{margin:0;font-size:20px}
+.filebar{display:flex;align-items:center;gap:10px}
+.filebar select{min-width:260px;max-width:420px;padding:7px 10px;border:1px solid var(--line);
+  border-radius:8px;background:#fff;font-size:13px;color:var(--ink)}
+.btn{display:inline-block;padding:7px 16px;border-radius:8px;border:none;cursor:pointer;
+  background:var(--pri);color:#fff;font-size:13px;font-weight:600}
+.btn:hover{filter:brightness(1.08)}
+.btn.ghost{background:var(--pri-weak);color:var(--pri)}
+main{padding:20px 28px 40px;max-width:1280px;margin:0 auto}
+.sheets{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.sheets button{padding:5px 14px;border-radius:999px;border:1px solid var(--line);background:#fff;
+  cursor:pointer;font-size:13px;color:var(--sub)}
+.sheets button.active{background:var(--pri);border-color:var(--pri);color:#fff;font-weight:600}
+.tabs{display:flex;gap:4px;border-bottom:2px solid var(--line);margin-bottom:16px}
+.tabs button{padding:9px 20px;border:none;background:none;cursor:pointer;font-size:14px;
+  color:var(--sub);border-bottom:2px solid transparent;margin-bottom:-2px}
+.tabs button.active{color:var(--pri);border-bottom-color:var(--pri);font-weight:700}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.panel-head h3{margin:0;font-size:15px}
+.controls{display:flex;gap:8px;flex-wrap:wrap}
+.controls select{padding:6px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:#fff}
+.chart-box{position:relative;height:320px}
+.table-wrap{overflow:auto;max-height:62vh;border:1px solid var(--line);border-radius:8px}
+.table-wrap.tall{max-height:78vh}
+table{border-collapse:collapse;width:100%;font-size:13px;background:#fff}
+th{position:sticky;top:0;background:#f0f4f9;text-align:left;padding:8px 12px;
+  border-bottom:2px solid var(--line);white-space:nowrap;font-weight:600;z-index:2}
+th.num{text-align:right}
+td{padding:7px 12px;border-bottom:1px solid var(--line);white-space:nowrap;max-width:280px;
+  overflow:hidden;text-overflow:ellipsis}
+tr:hover td{background:#f7faff}
+td.null,span.null{color:#b3bcc7}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.pager{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:10px;font-size:13px;color:var(--sub)}
+.pager button{padding:4px 12px;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer}
+.pager button:disabled{opacity:.4;cursor:default}
+.empty{text-align:center;padding:80px 20px;color:var(--sub)}
+.empty .big{font-size:44px}
+.empty .tip{margin-top:10px;font-size:14px}
+.drop-overlay{position:fixed;inset:0;background:rgba(47,111,237,.12);backdrop-filter:blur(1px);
+  z-index:50;display:flex;align-items:center;justify-content:center;
+  font-size:22px;font-weight:700;color:var(--pri);border:3px dashed var(--pri);pointer-events:none}
+.drop-overlay[hidden]{display:none}
+/* 逐厂呈现: 每家工厂一张卡片, 内含「产品趋势」小图 + 「按日期 × 产品 × 配送类型」明细小表 */
+.factory-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(600px,1fr));gap:14px;align-items:start}
+.factory-card{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--card)}
+.factory-card .fc-head{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+.factory-card .fc-head h4{margin:0;font-size:14px}
+.factory-card .fc-sub{font-size:12px;color:var(--muted);font-weight:600;margin:8px 0 4px}
+/* 昨日分产品小计 —— 突出条 (产品趋势顶部 + 每家工厂卡片共用同一套结构) */
+.daily-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0;
+  padding:9px 14px;border-radius:10px;
+  background:linear-gradient(100deg,#e7f0ff 0%,#f3f8ff 55%,#ffffff 100%);
+  border:1px solid #d5e2fb;border-left:4px solid var(--pri);
+  box-shadow:0 2px 7px rgba(47,111,237,.10)}
+.daily-badge{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;flex:none;
+  background:var(--pri);color:#fff;font-size:12px;font-weight:700;
+  padding:4px 11px;border-radius:999px;letter-spacing:.3px;
+  box-shadow:0 2px 5px rgba(47,111,237,.30)}
+.daily-badge em{font-style:normal;font-weight:600;opacity:.88;font-variant-numeric:tabular-nums}
+.daily-items{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.daily-item{display:inline-flex;align-items:baseline;gap:7px;border-radius:9px;
+  padding:4px 13px;border:1px solid #dde7fa;background:#fff;
+  box-shadow:0 1px 3px rgba(31,39,51,.07)}
+.daily-item .dot{width:9px;height:9px;border-radius:50%;align-self:center;flex:none}
+.daily-item .dl-cat{font-size:12px;color:var(--sub);font-weight:600;white-space:nowrap}
+.daily-item .dl-val{font-size:18px;font-weight:800;color:var(--pri);
+  font-variant-numeric:tabular-nums;letter-spacing:-.3px;line-height:1.05}
+.daily-empty{font-size:12px;color:var(--sub)}
+/* 产品趋势顶部: 整体再放大一档, 作为页面主看点 */
+#prodTrendDaily{margin:0 0 12px}
+#prodTrendDaily .daily-line{padding:11px 16px}
+#prodTrendDaily .daily-badge{font-size:13px;padding:5px 13px}
+#prodTrendDaily .daily-item{padding:5px 15px;gap:8px}
+#prodTrendDaily .daily-item .dl-cat{font-size:13px}
+#prodTrendDaily .dl-val{font-size:22px}
+#prodTrendDaily .daily-item .dot{width:10px;height:10px}
+/* 工厂卡片内: 紧凑一档, 仍保持高对比 */
+.factory-card .fc-daily{margin:0 0 8px}
+.factory-card .fc-daily .daily-line{padding:7px 10px;gap:8px;border-left-width:3px}
+.factory-card .fc-daily .daily-badge{font-size:11px;padding:3px 9px}
+.factory-card .fc-daily .daily-items{gap:7px}
+.factory-card .fc-daily .daily-item{padding:3px 10px;gap:6px}
+.factory-card .fc-daily .daily-item .dl-cat{font-size:11px}
+.factory-card .fc-daily .dl-val{font-size:15px}
+.factory-card .fc-daily .daily-item .dot{width:7px;height:7px}
+.factory-card .table-wrap table{font-size:12px}
+.factory-card .table-wrap th,.factory-card .table-wrap td{padding:5px 8px}
+.factory-chart{position:relative;height:170px}
+/* 日期 × 产品 × 配送类型 明细: 配送类型在行(分组)、日期在列 */
+td.date-cell,td.group-cell{vertical-align:top;font-weight:700;background:#f7faff;border-right:1px solid var(--line)}
+tr.subtotal td{background:var(--pri-weak);font-weight:700}
+tr.total td{background:#e3ebfa;font-weight:700;border-top:2px solid var(--line)}
+tr.date-sep td{border-top:1px solid var(--line)}
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:60;
+  padding:10px 22px;border-radius:10px;background:#1f2733;color:#fff;font-size:13px;
+  opacity:0;transition:opacity .25s;max-width:80vw}
+#toast.show{opacity:.95}
+#toast.bad{background:var(--danger)}
+.muted{color:var(--sub);font-size:12px}
+.badge{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;background:var(--pri-weak);color:var(--pri)}
+.chip{display:inline-block;padding:3px 10px;background:var(--pri-weak);color:var(--pri);
+  border-radius:999px;font-size:12px;font-weight:600}
+#mappingBar label{font-size:12px;color:var(--sub)}
+.mapping-tag{display:inline-block;margin-left:6px;padding:1px 6px;background:var(--pri-weak);color:var(--pri);border-radius:6px;font-size:11px;font-weight:600;vertical-align:middle}
+th.mapping{background:#fff8e6}
+.mappings-list{display:grid;gap:10px}
+.mapping-item{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.mapping-item .info{flex:1;min-width:200px}
+.mapping-item h4{margin:0;font-size:14px}
+.mapping-item .meta{font-size:12px;color:var(--sub);margin-top:3px;word-break:break-all}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>🚛 区域工厂液体装货趋势</h1>
+  </div>
+  <div class="filebar">
+    <select id="fileSelect" title="历史数据文件"></select>
+    <label class="btn" for="fileInput">⬆ 上传 Excel</label>
+    <input type="file" id="fileInput" accept=".xlsx,.xls" hidden>
+  </div>
+</header>
+
+<main>
+  <div id="empty" class="empty" hidden>
+    <div class="big">📥</div>
+    <div class="tip">还没有数据 —— 点击右上角「上传 Excel」，或把 .xlsx 文件直接拖进页面</div>
+  </div>
+
+  <div id="content" hidden>
+    <nav class="sheets" id="sheetTabs"></nav>
+    <nav class="tabs" id="mainTabs">
+      <button data-tab="analyze" class="active">装货分析</button>
+      <button data-tab="data">数据明细</button>
+      <button data-tab="mappings">匹配表管理</button>
+    </nav>
+
+    <div id="tab-data" hidden>
+      <div class="panel">
+        <div class="table-wrap"><table id="dataTable"><thead></thead><tbody></tbody></table></div>
+        <div class="pager">
+          <span id="pageInfo"></span>
+          <select id="pageSize">
+            <option value="25">25 行/页</option>
+            <option value="50" selected>50 行/页</option>
+            <option value="100">100 行/页</option>
+            <option value="200">200 行/页</option>
+          </select>
+          <button id="pgFirst">«</button>
+          <button id="pgPrev">‹</button>
+          <button id="pgNext">›</button>
+          <button id="pgLast">»</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-analyze">
+      <div class="panel">
+        <div class="panel-head"><h3>⚙ 分析设置</h3></div>
+        <div class="controls">
+          <label>选择区域</label>
+          <select id="regionSelect" style="min-width:160px"><option value="">（全部区域）</option></select>
+          <label>工厂筛选</label>
+          <select id="factoryFilter" style="min-width:180px"><option value="">（全部工厂·逐厂展示）</option></select>
+          <button class="btn ghost" id="refreshAnalyzeBtn">🔄 刷新</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>📈 产品趋势（近 7 天 · 按装货日期 × 产品品类）</h3></div>
+        <div id="prodTrendDaily" class="fc-daily"></div>
+        <div class="chart-box"><canvas id="prodTrendChart"></canvas></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>📋 按日期 × 产品 × 配送类型 明细</h3></div>
+        <div class="table-wrap tall"><table id="prodPivotTable"><thead></thead><tbody></tbody></table></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>🏭 按工厂逐一呈现（近 7 天趋势 + 按日期 × 产品 × 配送类型 明细）</h3>
+          <span class="muted" id="factoryCombinedCount"></span>
+        </div>
+        <div id="factoryCombinedList" class="factory-grid"></div>
+      </div>
+    </div>
+
+    <div id="tab-mappings" hidden>
+      <div class="panel">
+        <div class="panel-head"><h3>🔗 应用匹配表</h3>
+          <span class="chip" id="mappingChip" hidden></span>
+        </div>
+        <div class="controls" id="mappingBar">
+          <label>匹配表</label>
+          <select id="mappingSelect" title="选择匹配表" style="min-width:220px"></select>
+          <label>关联字段</label>
+          <select id="joinSelect" title="选择数据中的关联字段" style="min-width:160px"></select>
+          <label>匹配表关键列</label>
+          <select id="mkeySelect" title="匹配表中用于关联的字段" style="min-width:160px"></select>
+          <button class="btn ghost" id="applyMappingBtn">应用</button>
+          <button class="btn ghost" id="clearMappingBtn" hidden>取消匹配</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>📤 上传新匹配表</h3></div>
+        <div class="controls" style="margin-bottom:10px">
+          <input id="mapName" placeholder="匹配表名称（可选，默认取文件名）" style="flex:1;min-width:240px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px">
+          <input id="mapKey" placeholder="关联键字段名（可选，默认取第一列）" style="width:200px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px">
+          <label class="btn" for="mapFileInput">⬆ 选择 Excel</label>
+          <input type="file" id="mapFileInput" accept=".xlsx,.xls" hidden>
+          <button class="btn ghost" id="mapUploadBtn" disabled>📥 保存匹配表</button>
+        </div>
+        <div class="muted">提示：第一列通常作为关联键（如「区域」），其余列会自动并入数据明细与所有图表字段中。</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>📚 已保存的匹配表</h3></div>
+        <div id="mappingsList" class="mappings-list"><div class="muted">暂无匹配表</div></div>
+      </div>
+
+      <div class="panel" id="mappingPreviewPanel" hidden>
+        <div class="panel-head"><h3>👁 预览：<span id="mapPreviewName"></span></h3>
+          <button class="btn ghost" id="closeMapPreviewBtn">收起预览</button>
+        </div>
+        <div class="table-wrap"><table id="mapPreviewTable"><thead></thead><tbody></tbody></table></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div id="dropOverlay" class="drop-overlay" hidden>⬇ 松开鼠标上传文件</div>
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const PALETTE = ['#2f6fed','#00a3a3','#f59e0b','#e0526e','#8b5cf6','#10b981','#ef4444','#0ea5e9','#f97316','#14b8a6'];
+const charts = {};
+const state = { name:null, sheet:null, meta:null, page:1, size:50, mappings:[], active:null, defaultMapping:null, booting:false };
+
+/* ---------- 基础 ---------- */
+async function api(url, opts){
+  const res = await fetch(url, opts);
+  let j;
+  try { j = await res.json(); } catch(e){ throw new Error('HTTP ' + res.status); }
+  if(!j.ok) throw new Error(j.msg || '请求失败');
+  return j.data;
+}
+function esc(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function fmtNum(v){ return Number(v||0).toLocaleString('zh-CN',{maximumFractionDigits:2}); }
+/* 工厂名排序: 未匹配的永远排最后 */
+function sortFactoryNames(a, b){
+  const um = '（未匹配）';
+  if(a === um && b !== um) return 1;
+  if(b === um && a !== um) return -1;
+  return a.localeCompare(b, 'zh-CN');
+}
+function fmt(v){
+  if(v===null || v===undefined) return '<span class="null">—</span>';
+  if(typeof v === 'number'){
+    if(Number.isInteger(v)) return v.toLocaleString('zh-CN');
+    return v.toLocaleString('zh-CN',{maximumFractionDigits:2});
+  }
+  return esc(v);
+}
+function toast(msg, bad){
+  const t = $('#toast');
+  t.textContent = msg; t.className = 'show' + (bad ? ' bad' : '');
+  clearTimeout(t._tm); t._tm = setTimeout(()=>t.className='', 2600);
+}
+function prettyName(name){
+  const m = name.match(/^\d{8}-\d{6}-(.+)$/);
+  const ts = name.slice(0,15);
+  const dt = /^\d{8}-\d{6}$/.test(ts) ? ts.slice(4,6)+'-'+ts.slice(6,8)+' '+ts.slice(9,11)+':'+ts.slice(11,13) : '';
+  return (m ? m[1] : name) + (dt ? '　·　' + dt : '');
+}
+function drawChart(id, config){
+  if(charts[id]) charts[id].destroy();
+  charts[id] = new Chart($('#'+id), config);
+}
+
+/* ---------- 文件列表 / 上传 ---------- */
+async function loadFileList(selectName){
+  const files = await api('/api/files');
+  const sel = $('#fileSelect');
+  sel.innerHTML = '';
+  if(!files.length){
+    $('#empty').hidden = false; $('#content').hidden = true;
+    return;
+  }
+  files.forEach(f=>{
+    const o = document.createElement('option');
+    o.value = f.name; o.textContent = prettyName(f.name);
+    sel.appendChild(o);
+  });
+  const target = (selectName && files.some(f=>f.name===selectName)) ? selectName : files[0].name;
+  sel.value = target;
+  state.name = target; state.sheet = null; state.page = 1;
+  $('#empty').hidden = true; $('#content').hidden = false;
+  /* 启动阶段先不渲染: 等缺省匹配表应用好再一次性出图, 避免"未匹配→匹配"两次请求互相覆盖 */
+  if(!state.booting) await loadData();
+}
+async function uploadFile(file){
+  if(!/\.xlsx?$/i.test(file.name)){ toast('仅支持 .xlsx / .xls 文件', true); return; }
+  toast('正在上传并解析…');
+  try{
+    const fd = new FormData(); fd.append('file', file);
+    const d = await api('/api/upload', {method:'POST', body:fd});
+    const n = (d.pruned || []).length;
+    toast('上传成功，共 ' + d.rows + ' 行数据' + (n ? '（已清理 ' + n + ' 个旧文件，仅保留最新一份）' : ''));
+    /* 换了数据源后重新按缺省匹配表应用一次 */
+    state.active = null;
+    $('#mappingChip').hidden = true;
+    $('#clearMappingBtn').hidden = true;
+    await loadFileList(d.name);
+    await applyDefaultMapping();
+  }catch(e){ toast('上传失败：' + e.message, true); }
+}
+
+/* ---------- 数据明细 ---------- */
+async function loadData(){
+  if(!state.name) return;
+  try{
+    const params = new URLSearchParams({sheet: state.sheet||'', page: state.page, size: state.size});
+    if(state.active){ params.set('mapping', state.active.name); params.set('join', state.active.join); if(state.active.mkey) params.set('mkey', state.active.mkey); }
+    const d = await api('/api/data/' + encodeURIComponent(state.name) + '?' + params);
+    state.sheet = d.sheet; state.meta = d;
+    renderSheetTabs(); renderTable();
+    if(state.active){
+      const has = state.meta.columns.some(c => c.name === state.active.join);
+      if(!has){ clearMapping(true); toast('已自动取消匹配：当前数据中没有「' + state.active.join + '」字段', true); }
+    }
+    refreshJoinSelect(); refreshMkeySelect();
+    if(!state.active && !state.booting) suggestJoin();
+    const active = $('#mainTabs button.active').dataset.tab;
+    if(active==='analyze') refreshAnalyze();
+  }catch(e){ toast('加载失败：' + e.message, true); }
+}
+function renderSheetTabs(){
+  const m = state.meta;
+  const nav = $('#sheetTabs');
+  if(m.sheets.length <= 1){ nav.innerHTML=''; return; }
+  nav.innerHTML = m.sheets.map(s =>
+    `<button class="${s===m.sheet?'active':''}" data-sheet="${esc(s)}">${esc(s)}</button>`).join('');
+  nav.querySelectorAll('button').forEach(b => b.addEventListener('click', ()=>{
+    state.sheet = b.dataset.sheet; state.page = 1; loadData();
+  }));
+}
+function renderTable(){
+  const m = state.meta;
+  $('#dataTable thead').innerHTML = '<tr>' + m.columns.map(c =>
+    `<th title="${esc(c.dtype)}" class="${c.from_mapping?'mapping':''}">${esc(c.name)}${c.from_mapping?'<span class="mapping-tag">匹配</span>':''}</th>`).join('') + '</tr>';
+  $('#dataTable tbody').innerHTML = m.rows.map(r =>
+    '<tr>' + m.columns.map(c => {
+      const v = r[c.name];
+      const cls = typeof v === 'number' ? ' class="num"' : '';
+      return `<td${cls} title="${typeof v==='string'?esc(v):''}">${fmt(v)}</td>`;
+    }).join('') + '</tr>').join('');
+  $('#pageInfo').textContent = `第 ${m.page} / ${m.pages} 页 · 共 ${m.total.toLocaleString('zh-CN')} 行`;
+  $('#pgPrev').disabled = $('#pgFirst').disabled = m.page <= 1;
+  $('#pgNext').disabled = $('#pgLast').disabled = m.page >= m.pages;
+}
+
+/* ---------- 事件绑定 ---------- */
+$('#fileInput').addEventListener('change', e=>{ if(e.target.files[0]) uploadFile(e.target.files[0]); e.target.value=''; });
+$('#fileSelect').addEventListener('change', e=>{ state.name = e.target.value; state.sheet=null; state.page=1; loadData(); });
+$('#mainTabs').querySelectorAll('button').forEach(b=>b.addEventListener('click', ()=>{
+  $('#mainTabs').querySelectorAll('button').forEach(x=>x.classList.toggle('active', x===b));
+  const tab = b.dataset.tab;
+  $('#tab-data').hidden = tab!=='data';
+  $('#tab-analyze').hidden = tab!=='analyze';
+  $('#tab-mappings').hidden = tab!=='mappings';
+  if(tab==='analyze') refreshAnalyze();
+  if(tab==='mappings') loadMappings();
+}));
+$('#pgFirst').addEventListener('click', ()=>{ state.page=1; loadData(); });
+$('#pgPrev').addEventListener('click', ()=>{ state.page--; loadData(); });
+$('#pgNext').addEventListener('click', ()=>{ state.page++; loadData(); });
+$('#pgLast').addEventListener('click', ()=>{ state.page=state.meta.pages; loadData(); });
+$('#pageSize').addEventListener('change', e=>{ state.size=+e.target.value; state.page=1; loadData(); });
+
+/* 匹配表控件事件 */
+$('#mappingSelect').addEventListener('change', ()=>{
+  const m = state.mappings.find(x=>x.name===$('#mappingSelect').value);
+  state.joinTouched = false;
+  if(m){ refreshJoinSelect(); refreshMkeySelect(); suggestJoin(); }
+});
+$('#mkeySelect').addEventListener('change', ()=>suggestJoin());
+$('#joinSelect').addEventListener('change', ()=>{ state.joinTouched = true; });
+$('#applyMappingBtn').addEventListener('click', applyMapping);
+$('#clearMappingBtn').addEventListener('click', ()=>clearMapping(false));
+$('#mapFileInput').addEventListener('change', e=>{
+  const f = e.target.files[0]; if(!f) return;
+  $('#mapUploadBtn')._file = f;
+  $('#mapUploadBtn').disabled = false;
+  if(!$('#mapName').value) $('#mapName').value = f.name.replace(/\.(xlsx|xls)$/i,'');
+  toast('已选择：' + f.name + '，点「保存匹配表」完成');
+});
+$('#mapUploadBtn').addEventListener('click', async ()=>{
+  const f = $('#mapUploadBtn')._file;
+  if(!f){ toast('请先选择文件', true); return; }
+  const mname = $('#mapName').value.trim();
+  const mkey = $('#mapKey').value.trim();
+  try{
+    const d = await uploadMapping(f, mname, mkey);
+    const n = (d.pruned || []).length;
+    toast('已保存匹配表：' + d.name + '（' + d.rows + ' 行）' + (n ? '，已清理 ' + n + ' 个旧匹配表' : ''));
+    $('#mapName').value=''; $('#mapKey').value=''; $('#mapUploadBtn')._file=null; $('#mapUploadBtn').disabled=true;
+    $('#mapFileInput').value='';
+    if(d.default && !d.default.join){
+      toast('新匹配表已设为缺省，但自动关联字段未识别成功 —— 请在「匹配表管理」页手动选定后点「应用」', true);
+    }
+    state.active = null;       /* 以新缺省重新应用 */
+    $('#mappingChip').hidden = true;
+    $('#clearMappingBtn').hidden = true;
+    await loadMappings();
+    await applyDefaultMapping();
+  }catch(e){ toast('上传失败：' + e.message, true); }
+});
+$('#closeMapPreviewBtn').addEventListener('click', ()=>$('#mappingPreviewPanel').hidden = true);
+
+/* 装货分析控件事件 */
+$('#regionSelect').addEventListener('change', ()=>drawAllReports());
+$('#factoryFilter').addEventListener('change', renderFactorySections);
+$('#refreshAnalyzeBtn').addEventListener('click', refreshAnalyze);
+
+/* 拖拽上传 */
+let dragDepth = 0;
+document.addEventListener('dragenter', e=>{ e.preventDefault(); dragDepth++; $('#dropOverlay').hidden=false; });
+document.addEventListener('dragleave', e=>{ e.preventDefault(); if(--dragDepth<=0){ dragDepth=0; $('#dropOverlay').hidden=true; } });
+document.addEventListener('dragover', e=>e.preventDefault());
+document.addEventListener('drop', e=>{
+  e.preventDefault(); dragDepth=0; $('#dropOverlay').hidden=true;
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if(f) uploadFile(f);
+});
+
+/* ---------- 匹配表 ---------- */
+async function loadMappings(){
+  const [list, dm] = await Promise.all([
+    api('/api/mappings'),
+    api('/api/default-mapping').catch(()=>({mapping:null}))
+  ]);
+  state.mappings = list;
+  state.defaultMapping = (dm && dm.mapping) || null;
+  const sel = $('#mappingSelect');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">（未选择）</option>' + list.map(m =>
+    `<option value="${esc(m.name)}">${esc(m.name)}（${m.rows} 行 · 键=${esc(m.key)}）${isDefault(m.name) ? ' · 缺省' : ''}</option>`).join('');
+  if([...sel.options].some(o=>o.value===prev)) sel.value = prev;
+  refreshMkeySelect();
+  renderMappingsPanel();
+}
+function isDefault(name){
+  return !!(state.defaultMapping && state.defaultMapping.name === name);
+}
+/* 打开页面时自动应用缺省匹配表(点击「取消匹配」只对本次会话生效, 刷新后恢复) */
+async function applyDefaultMapping(){
+  if(state.active) return;
+  const dm = state.defaultMapping;
+  if(!dm) return;
+  if(!state.mappings.some(m => m.name === dm.name)) return;
+  const sel = $('#mappingSelect');
+  sel.value = dm.name;
+  refreshMkeySelect();
+  if(dm.mkey && [...$('#mkeySelect').options].some(o => o.value === dm.mkey)) $('#mkeySelect').value = dm.mkey;
+  const mkey = $('#mkeySelect').value || dm.mkey;
+  refreshJoinSelect();
+  let join = dm.join;
+  if(!join || ![...$('#joinSelect').options].some(o => o.value === join)){
+    /* 缺省的关联列不在当前数据里 → 重新自动推荐一个 */
+    try{
+      const params = new URLSearchParams({mkey: mkey || ''});
+      if(state.name) params.set('file', state.name);
+      if(state.sheet) params.set('sheet', state.sheet);
+      const s = await api('/api/mapping/' + encodeURIComponent(dm.name) + '/suggest?' + params);
+      if(s.candidates && s.candidates.length) join = s.candidates[0].column;
+    }catch(e){ /* 推荐失败则直接放弃自动应用 */ }
+  }
+  if(!join) return;
+  $('#joinSelect').value = join;
+  state.active = {name: dm.name, join, mkey: mkey || join};
+  $('#mappingChip').hidden = false;
+  $('#mappingChip').textContent = '缺省已应用：' + dm.name + ' · 数据.' + join + ' ↔ 表.' + state.active.mkey;
+  $('#clearMappingBtn').hidden = false;
+  await loadData();
+}
+function refreshJoinSelect(){
+  const sel = $('#joinSelect');
+  const cols = state.meta ? state.meta.columns : [];
+  const prev = sel.value;
+  sel.innerHTML = cols.map(c => `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
+  if(state.active && cols.some(c => c.name === state.active.join)) sel.value = state.active.join;
+  else if(prev && cols.some(c => c.name === prev)) sel.value = prev;
+}
+function refreshMkeySelect(){
+  const sel = $('#mkeySelect');
+  const m = state.mappings.find(x => x.name === $('#mappingSelect').value);
+  if(!m){ sel.innerHTML = ''; return; }
+  const prev = sel.value;
+  sel.innerHTML = m.columns.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  // 默认选中 mapping 的 key, 或保留旧值
+  const target = (state.active && state.active.name === m.name && state.active.mkey) || prev || m.key;
+  if(m.columns.includes(target)) sel.value = target;
+}
+/* 自动推荐关联字段: 后端对数据每列计算与匹配表关键列的命中率 */
+async function suggestJoin(){
+  const name = $('#mappingSelect').value;
+  const mkey = $('#mkeySelect').value;
+  if(!name || !mkey || !state.name || state.active || state.joinTouched) return;
+  try{
+    const params = new URLSearchParams({file: state.name, mkey: mkey});
+    if(state.sheet) params.set('sheet', state.sheet);
+    const d = await api('/api/mapping/' + encodeURIComponent(name) + '/suggest?' + params);
+    if(d.candidates && d.candidates.length){
+      const best = d.candidates[0];
+      if([$('#joinSelect')].length && [...$('#joinSelect').options].some(o=>o.value===best.column)){
+        $('#joinSelect').value = best.column;
+        toast(`已自动推荐关联字段「${best.column}」（命中率 ${best.rate}%，${best.hit}/${best.total} 行）— 点「应用」生效`);
+      }
+    }
+  }catch(e){ /* 推荐失败不影响主流程 */ }
+}
+function renderMappingsPanel(){
+  const list = state.mappings;
+  const wrap = $('#mappingsList');
+  if(!list.length){ wrap.innerHTML = '<div class="muted">暂无匹配表 —— 点上方「⬆ 选择 Excel」添加</div>'; return; }
+  wrap.innerHTML = list.map(m => `
+    <div class="mapping-item">
+      <div class="info">
+        <h4>${esc(m.name)} <span class="mapping-tag">键 ${esc(m.key)}</span>${isDefault(m.name) ? '<span class="mapping-tag">缺省</span>' : ''}</h4>
+        <div class="meta">${m.columns.map(c=>esc(c)).join('、')}　·　${m.rows} 行　·　更新于 ${esc(m.updated||'')}</div>
+      </div>
+      <div class="controls">
+        <button class="btn ghost" data-preview="${esc(m.name)}">👁 预览</button>
+        <button class="btn ghost" data-apply="${esc(m.name)}">应用到当前数据</button>
+        <button class="btn ghost" data-delete="${esc(m.name)}" style="color:var(--danger)">删除</button>
+      </div>
+    </div>`).join('');
+  wrap.querySelectorAll('[data-preview]').forEach(b=>b.addEventListener('click', ()=>previewMapping(b.dataset.preview)));
+  wrap.querySelectorAll('[data-apply]').forEach(b=>b.addEventListener('click', ()=>{
+    $('#mappingSelect').value = b.dataset.apply;
+    refreshJoinSelect(); refreshMkeySelect();
+    applyMapping();
+    /* 应用匹配后直接跳到「装货分析」看结果 */
+    $('#mainTabs').querySelectorAll('button').forEach(x=>x.classList.toggle('active', x.dataset.tab==='analyze'));
+    $('#tab-data').hidden = true; $('#tab-mappings').hidden = true; $('#tab-analyze').hidden = false;
+    refreshAnalyze();
+  }));
+  wrap.querySelectorAll('[data-delete]').forEach(b=>b.addEventListener('click', ()=>deleteMapping(b.dataset.delete)));
+}
+async function previewMapping(name){
+  try{
+    const m = await api('/api/mapping/' + encodeURIComponent(name));
+    $('#mapPreviewName').textContent = m.name;
+    $('#mapPreviewTable thead').innerHTML = '<tr>' + m.columns.map(c => `<th>${esc(c)}</th>`).join('') + '</tr>';
+    $('#mapPreviewTable tbody').innerHTML = m.preview.map(r =>
+      '<tr>' + m.columns.map(c => `<td>${fmt(r[c])}</td>`).join('') + '</tr>').join('');
+    $('#mappingPreviewPanel').hidden = false;
+  }catch(e){ toast('预览失败：' + e.message, true); }
+}
+async function uploadMapping(file, name, key){
+  const fd = new FormData();
+  fd.append('file', file);
+  if(name) fd.append('name', name);
+  if(key) fd.append('key', key);
+  return await api('/api/mapping/upload', {method:'POST', body:fd});
+}
+async function deleteMapping(name){
+  if(!confirm(`确认删除匹配表「${name}」？`)) return;
+  try{
+    await api('/api/mapping/' + encodeURIComponent(name), {method:'DELETE'});
+    toast('已删除：' + name);
+    if(state.active && state.active.name === name) clearMapping(true);
+    await loadMappings();
+  }catch(e){ toast('删除失败：' + e.message, true); }
+}
+async function applyMapping(){
+  const name = $('#mappingSelect').value;
+  const join = $('#joinSelect').value;
+  const mkey = $('#mkeySelect').value;
+  if(!name){ toast('请先选择匹配表', true); return; }
+  if(!join){ toast('请选择数据中的关联字段', true); return; }
+  state.active = {name, join, mkey};
+  $('#mappingChip').hidden = false;
+  const m = state.mappings.find(x => x.name === name);
+  $('#mappingChip').textContent = '已应用：' + name + ' · 数据.' + join + ' ↔ 表.' + (mkey || (m && m.key) || '?');
+  $('#clearMappingBtn').hidden = false;
+  toast('已应用匹配表：' + name + ' —— 装货分析已按此重新计算');
+  /* 手动应用的这一版即成为今后的缺省设置 */
+  try{
+    await api('/api/default-mapping', {method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, join, mkey})});
+    state.defaultMapping = {name, join, mkey};
+  }catch(e){ /* 记不住缺省不影响本次使用 */ }
+  await loadData();
+}
+function clearMapping(silent){
+  state.active = null;
+  $('#mappingChip').hidden = true;
+  $('#clearMappingBtn').hidden = true;
+  if(!silent){ toast('已取消匹配（刷新页面会恢复缺省匹配表）'); loadData(); }
+}
+
+/* ---------- 装货分析 ---------- */
+/* 每次刷新自增; 旧请求返回时若已被新请求取代, 直接丢弃, 避免相互覆盖 */
+let analyzeSeq = 0;
+async function refreshAnalyze(){
+  if(!state.name) return;
+  const seq = ++analyzeSeq;
+  await refreshRegionSelect(seq);
+  if(seq !== analyzeSeq) return;
+  await drawAllReports(seq);
+}
+/* 缺省选定区域: 首次加载时自动选中, 之后保留用户自己的选择 */
+const DEFAULT_REGION = '北区';
+async function refreshRegionSelect(seq){
+  const sel = $('#regionSelect');
+  /* 换了数据文件 → 重置为缺省区域 */
+  if(sel.dataset.forName !== String(state.name)){ sel.dataset.filled = ''; sel.dataset.forName = String(state.name); }
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">（全部区域）</option>';
+  let regions = null;
+  try{
+    const params = new URLSearchParams({sheet: state.sheet||''});
+    if(state.active){ params.set('mapping', state.active.name); params.set('join', state.active.join); if(state.active.mkey) params.set('mkey', state.active.mkey); }
+    const d = await api('/api/analyze/' + encodeURIComponent(state.name) + '/regions?' + params);
+    if(seq !== analyzeSeq) return;
+    regions = (d && d.regions) || [];
+    if(regions.length){
+      sel.innerHTML += regions.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('');
+    }else{
+      sel.innerHTML += '<option value="" disabled>（先应用区域匹配表后可选区域）</option>';
+    }
+  }catch(e){
+    sel.innerHTML += '<option value="" disabled>（区域加载失败）</option>';
+  }
+  if(regions && regions.length){
+    let want = prev;
+    if(sel.dataset.filled !== '1' && regions.includes(DEFAULT_REGION)) want = DEFAULT_REGION;
+    sel.dataset.filled = '1';
+    if([...sel.options].some(o=>o.value===want)) sel.value = want;
+  }else{
+    if([...sel.options].some(o=>o.value===prev)) sel.value = prev;
+  }
+}
+function analyzeParams(){
+  const params = new URLSearchParams({
+    sheet: state.sheet||'',
+    region: $('#regionSelect').value || '',
+    freq: 'day'   /* 装货分析固定按天，不提供时间粒度选择 */
+  });
+  if(state.active){ params.set('mapping', state.active.name); params.set('join', state.active.join); if(state.active.mkey) params.set('mkey', state.active.mkey); }
+  return params;
+}
+async function drawAllReports(seq){
+  if(!state.name) return;
+  if(typeof seq !== 'number') seq = ++analyzeSeq;
+  const baseUrl = '/api/analyze/' + encodeURIComponent(state.name);
+  const q = analyzeParams();
+  try{
+    const d = await api(baseUrl + '?' + q + '&report=product_trend');
+    if(seq !== analyzeSeq) return;
+    drawProductTrend(d);
+  }catch(e){ if(seq === analyzeSeq) toast('产品趋势失败：' + e.message, true); }
+  try{
+    const d = await api(baseUrl + '?' + q + '&report=product_pivot');
+    if(seq !== analyzeSeq) return;
+    renderProductPivot(d);
+  }catch(e){ if(seq === analyzeSeq) toast('产品明细失败：' + e.message, true); }
+  try{
+    const d = await api(baseUrl + '?' + q + '&report=factory_trend');
+    if(seq !== analyzeSeq) return;
+    drawFactoryTrend(d);
+  }catch(e){ if(seq === analyzeSeq) toast('工厂趋势失败：' + e.message, true); }
+  try{
+    const d = await api(baseUrl + '?' + q + '&report=factory_pivot');
+    if(seq !== analyzeSeq) return;
+    renderFactoryPivot(d);
+  }catch(e){ if(seq === analyzeSeq) toast('工厂明细失败：' + e.message, true); }
+}
+function drawProductTrend(d){
+  /* 顶端补一行「昨日(近 7 天窗口最后一天)分产品小计」, 与「按工厂逐一呈现」卡片同款 */
+  renderDailyLine($('#prodTrendDaily'), d);
+  drawChart('prodTrendChart', {
+    type:'line',
+    data:{ labels: d.labels, datasets: d.series.map((s, i) => ({
+      label: s.name, data: s.data,
+      borderColor: PALETTE[i % PALETTE.length],
+      backgroundColor: PALETTE[i % PALETTE.length] + '22',
+      fill: false, tension: .3, pointRadius: 2.5, borderWidth: 2
+    }))},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{position:'top'} }, scales:{ y:{beginAtZero:true} } }
+  });
+}
+/* 共用: 「昨日（xx）分产品」小计条 —— 取每个 series 的最后一个数据点
+   结构: <div.daily-line> [徽标: 昨日 日期 分产品] + [每个产品一块胶囊: 色点 品类 数值] */
+function dailyLineHtml(d){
+  const yLabel = (d && d.last_label)
+    || ((d && d.labels && d.labels.length) ? d.labels[d.labels.length - 1] : '');
+  const series = (d && d.series) || [];
+  if(!series.length) return '<div class="daily-empty">昨日无装货记录</div>';
+  const items = series.map((s, i) => {
+    const cat = s.category || s.name || '';
+    const v = (s.data && s.data.length) ? Number(s.data[s.data.length - 1]) || 0 : 0;
+    const c = PALETTE[i % PALETTE.length];
+    return `<div class="daily-item" style="border-color:${c}2e;background:${c}0d">` +
+      `<i class="dot" style="background:${c}"></i>` +
+      `<span class="dl-cat">${esc(cat)}</span>` +
+      `<span class="dl-val">${fmtNum(v)}</span></div>`;
+  }).join('');
+  return `<div class="daily-line">` +
+    `<span class="daily-badge">昨日 <em>${esc(yLabel || '—')}</em> 分产品</span>` +
+    `<div class="daily-items">${items}</div></div>`;
+}
+function renderDailyLine(el, d){
+  if(el) el.innerHTML = dailyLineHtml(d);
+}
+function drawFactoryTrend(d){
+  state.lastFactoryTrend = d;
+  renderFactorySections();
+}
+/* 工厂筛选下拉: 选项来自当前数据里出现的工厂（趋势 ∪ 明细，避免近7天无数据的厂漏选） */
+function refreshFactoryFilter(){
+  const sel = $('#factoryFilter');
+  if(!sel) return;
+  const tr = state.lastFactoryTrend, pv = state.lastFactoryPivot;
+  if(!tr && !pv) return;
+  const prev = sel.value;
+  const set = new Set();
+  ((tr && tr.series) || []).forEach(s => set.add(s.factory || s.name.split('·')[0]));
+  ((pv && pv.series) || []).forEach(s => set.add(s.factory));
+  const names = [...set].sort(sortFactoryNames);
+  sel.innerHTML = '<option value="">（全部工厂·逐厂展示）</option>' + names.map(n =>
+    `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  if([...sel.options].some(o => o.value === prev)) sel.value = prev;
+}
+/* 逐厂渲染(合并): 每家工厂一张卡片 —— 上半部分该厂「产品趋势」折线, 下半部分该厂「日期 × 产品 × 配送类型」明细小表 */
+function renderFactorySections(){
+  const grid = $('#factoryCombinedList');
+  if(!grid) return;
+  refreshFactoryFilter();
+  const tr = state.lastFactoryTrend, pv = state.lastFactoryPivot;
+  if(!tr && !pv){ grid.innerHTML = '<div class="muted">暂无数据</div>'; return; }
+  // 先销毁上一次的小图
+  Object.keys(charts).filter(k => k.startsWith('ft_')).forEach(k => { charts[k].destroy(); delete charts[k]; });
+
+  /* 趋势: 按工厂分组（每家工厂下挂多个产品品类 series） */
+  const trendGroups = new Map();
+  ((tr && tr.series) || []).forEach(s => {
+    const f = s.factory || s.name.split('·')[0];
+    if(!trendGroups.has(f)) trendGroups.set(f, []);
+    trendGroups.get(f).push(s);
+  });
+
+  /* 明细: 按工厂分组（配送类型 × 品类 × 逐日期） */
+  const pivotGroups = new Map();
+  ((pv && pv.series) || []).forEach(s => {
+    if(!pivotGroups.has(s.factory)) pivotGroups.set(s.factory, []);
+    pivotGroups.get(s.factory).push({delivery: s.delivery, cat: s.category, values: s.data});
+  });
+
+  const filter = $('#factoryFilter') ? $('#factoryFilter').value : '';
+  let names = [...new Set([...trendGroups.keys(), ...pivotGroups.keys()])].sort(sortFactoryNames);
+  if(filter) names = names.filter(n => n === filter);
+  const cnt = $('#factoryCombinedCount');
+  if(cnt) cnt.textContent = filter ? ('已筛选：' + filter) : (names.length + ' 家工厂');
+  if(!names.length){ grid.innerHTML = '<div class="muted">当前筛选条件下没有数据</div>'; return; }
+
+  grid.innerHTML = names.map((f, i) => {
+    const series = trendGroups.get(f) || [];
+    const items = pivotGroups.get(f) || [];
+    /* 头部只保留工厂名 + 昨日分产品小计（不再显示昨日总合计）；文案与「产品趋势」共用同一函数 */
+    const dailyHtml = dailyLineHtml({last_label: tr && tr.last_label,
+                                     labels: tr && tr.labels, series: series});
+
+    const tableHtml = items.length
+      ? '<div class="table-wrap"><table>' + pivotTableHtml(pv.labels, items) + '</table></div>'
+      : '';
+
+    return `<div class="factory-card">
+      <div class="fc-head"><h4>${esc(f)}</h4></div>
+      <div class="fc-daily">${dailyHtml}</div>
+      <div class="factory-chart">${series.length
+        ? `<canvas id="ft_${i}"></canvas>`
+        : '<div class="muted" style="font-size:12px">该厂近 7 天无趋势数据</div>'}</div>
+      <div class="fc-sub">近 7 天 · 按日期 × 产品 × 配送类型 明细</div>
+      ${tableHtml || '<div class="muted" style="font-size:12px">暂无明细数据</div>'}
+    </div>`;
+  }).join('');
+
+  names.forEach((f, i) => {
+    const series = trendGroups.get(f) || [];
+    if(!series.length) return;
+    drawChart('ft_' + i, {
+      type:'line',
+      data:{ labels: tr.labels, datasets: series.map((s, j) => ({
+        label: s.category || s.name.split('·').slice(1).join('·'),
+        data: s.data,
+        borderColor: PALETTE[j % PALETTE.length],
+        backgroundColor: PALETTE[j % PALETTE.length] + '22',
+        fill:false, tension:.3, pointRadius:1.5, borderWidth:1.8
+      }))},
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{position:'bottom', labels:{boxWidth:10, font:{size:10}}},
+                  tooltip:{callbacks:{label:c => c.dataset.label + '：' + fmtNum(c.parsed.y)}} },
+        scales:{ x:{ticks:{font:{size:10}}, grid:{display:false}}, y:{beginAtZero:true, ticks:{font:{size:10}}} },
+        elements:{line:{borderJoinStyle:'round'}} }
+    });
+  });
+}
+/* 共用: 生成「日期 × 产品 × 配送类型」明细表（配送类型在行分组、日期在列）
+   labels: 日期列; cells: [{delivery, cat, values:[按日期]}] */
+function pivotTableHtml(labels, cells){
+  labels = labels || [];
+  cells = cells || [];
+  const ncol = 2 + labels.length + 1;
+  const head = '<thead><tr><th>配送类型</th><th>品类</th>' +
+    labels.map(l => `<th class="num">${esc(l)}</th>`).join('') + '<th class="num">合计</th></tr></thead>';
+  if(!cells.length){
+    return head + '<tbody><tr><td colspan="' + ncol +
+      '" class="muted">近 7 天暂无数据</td></tr></tbody>';
+  }
+  const num = v => fmtNum(v);
+  /* 按配送类型分组（保持后端给的顺序） */
+  const groups = new Map();
+  cells.forEach(c => {
+    if(!groups.has(c.delivery)) groups.set(c.delivery, []);
+    groups.get(c.delivery).push(c);
+  });
+  const dateTotals = new Array(labels.length).fill(0);
+  let html = '';
+  let first = true;
+  groups.forEach((items, dv) => {
+    const subArr = new Array(labels.length).fill(0);
+    items.forEach(it => it.values.forEach((v, j) => subArr[j] += Number(v) || 0));
+    items.forEach((it, k) => {
+      html += '<tr class="' + ((!k && !first) ? 'date-sep' : '') + '">';
+      if(k === 0) html += `<td class="group-cell" rowspan="${items.length + 1}">${esc(dv)}</td>`;
+      const rowTotal = it.values.reduce((a, v) => a + (Number(v) || 0), 0);
+      html += '<td><b>' + esc(it.cat) + '</b></td>' +
+        labels.map((_, j) => '<td class="num">' + num(it.values[j]) + '</td>').join('') +
+        '<td class="num"><b>' + num(rowTotal) + '</b></td></tr>';
+    });
+    const subTotal = subArr.reduce((a, b) => a + b, 0);
+    html += '<tr class="subtotal"><td>' + esc(dv) + ' 小计</td>' +
+      subArr.map(v => '<td class="num">' + num(v) + '</td>').join('') +
+      '<td class="num">' + num(subTotal) + '</td></tr>';
+    subArr.forEach((v, j) => dateTotals[j] += v);
+    first = false;
+  });
+  const grand = dateTotals.reduce((a, b) => a + b, 0);
+  html += '<tr class="total"><td colspan="2">合计（近 7 天）</td>' +
+    dateTotals.map(v => '<td class="num">' + num(v) + '</td>').join('') +
+    '<td class="num">' + num(grand) + '</td></tr>';
+  return head + '<tbody>' + html + '</tbody>';
+}
+function renderProductPivot(d){
+  const t = $('#prodPivotTable');
+  t.innerHTML = pivotTableHtml(d.labels, d.cells);
+}
+function renderFactoryPivot(d){
+  state.lastFactoryPivot = d;
+  renderFactorySections();
+}
+
+/* 启动: 载入文件与匹配表 → 自动应用缺省匹配表 → 一次性渲染 */
+state.booting = true;
+loadFileList()
+  .then(loadMappings)
+  .then(applyDefaultMapping)
+  .then(async ()=>{ if(!state.active && state.name) await loadData(); })
+  .catch(e=>toast('初始化失败：'+e.message, true))
+  .then(()=>{ state.booting = false; });
+</script>
+</body>
+</html>

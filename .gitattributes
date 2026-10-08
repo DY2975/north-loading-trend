@@ -1,0 +1,19 @@
+# 统一换行: 容器里跑的文件必须是 LF, 否则 Dockerfile 的续行符会被 CR 破坏
+* text=auto
+*.py    text eol=lf
+*.json  text eol=lf
+*.html  text eol=lf
+*.js    text eol=lf
+*.css   text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.txt   text eol=lf
+Dockerfile text eol=lf
+
+# Windows 批处理必须是 CRLF
+*.cmd   text eol=crlf
+
+# 二进制
+*.xlsx  binary
+*.png   binary
+*.ico   binary
